@@ -138,7 +138,15 @@ curl -X POST http://localhost:5000/api/auth/login \
 
 ### Google Sign-In
 
-From your mobile app, after Google Sign-In completes:
+**Production:** Send the **idToken** from Google so the server can verify it (requires `GOOGLE_CLIENT_ID` in `.env`):
+
+```bash
+curl -X POST http://localhost:5000/api/auth/google \
+  -H "Content-Type: application/json" \
+  -d '{"idToken": "GOOGLE_ID_TOKEN_FROM_APP"}'
+```
+
+**Dev (no verification):** Send `googleId` and `email`:
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/google \
@@ -153,7 +161,15 @@ curl -X POST http://localhost:5000/api/auth/google \
 
 ### Apple Sign-In
 
-From your mobile app, after Apple Sign-In completes:
+**Production:** Send the **identityToken** from Sign in with Apple (requires `APPLE_CLIENT_ID` in `.env`):
+
+```bash
+curl -X POST http://localhost:5000/api/auth/apple \
+  -H "Content-Type: application/json" \
+  -d '{"identityToken": "APPLE_IDENTITY_TOKEN_FROM_APP"}'
+```
+
+**Dev (no verification):** Send `appleId` and optionally `email` (Apple only sends email on first sign-in):
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/apple \
@@ -187,6 +203,45 @@ curl http://localhost:5000/api/auth/me \
    router.use('/users', userRoutes);
    ```
 
+## Authentication Setup (Database + Google/Apple)
+
+### User model (MongoDB)
+
+Users are stored in MongoDB with:
+
+- **Email** and/or **phone** (at least one)
+- **Password** (hashed with bcrypt; optional for social-only users)
+- **Google ID** / **Apple ID** when they sign in with Google or Apple
+- **authProvider**: `local` | `google` | `apple`
+
+Register and login use email/phone + password. For Google/Apple, the app sends the provider’s token; the server can verify it when you set the env vars below.
+
+### Google Sign-In (server-side verification)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create or use an OAuth 2.0 Client ID (e.g. iOS/Android/Web).
+2. Add to `.env`:
+   ```bash
+   GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   ```
+3. From the app, send **`idToken`** (the ID token from Google) in the request body. The server will verify it and use the token’s `sub` and `email`. Without `GOOGLE_CLIENT_ID`, you can still send `googleId` and `email` (dev only).
+
+### Apple Sign-In (server-side verification)
+
+1. In [Apple Developer](https://developer.apple.com/account) → Certificates, Identifiers & Profiles → Identifiers, create a **Services ID** (e.g. `com.yourapp.service`).
+2. Add to `.env`:
+   ```bash
+   APPLE_CLIENT_ID=com.yourapp.service
+   ```
+3. From the app, send **`identityToken`** (the JWT from Sign in with Apple). The server will verify it and use the token’s `sub`. Without `APPLE_CLIENT_ID`, you can send `appleId` (and `email` when Apple provides it) for dev.
+
+### Protected routes
+
+Send the JWT in the header:
+
+```http
+Authorization: Bearer <token>
+```
+
 ## Environment Variables
 
 | Variable | Description |
@@ -195,6 +250,8 @@ curl http://localhost:5000/api/auth/me \
 | `MONGODB_URI` | MongoDB connection string |
 | `JWT_SECRET` | Secret key for signing tokens (keep this safe!) |
 | `JWT_EXPIRES_IN` | Token expiration time (default: 30d) |
+| `GOOGLE_CLIENT_ID` | Optional. Google OAuth Client ID for server-side token verification |
+| `APPLE_CLIENT_ID` | Optional. Apple Services ID for server-side token verification |
 
 ## Need Help?
 

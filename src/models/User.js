@@ -82,12 +82,9 @@ userSchema.index({ appleId: 1 });
  * This runs automatically when you save a user with a new/changed password
  */
 userSchema.pre('save', async function(next) {
-  // Only hash if password was modified
-  if (!this.isModified('password')) {
+  if (!this.isModified('password') || !this.password) {
     return next();
   }
-  
-  // Hash password with strength of 12
   const salt = await bcrypt.genSalt(12);
   this.password = await bcrypt.hash(this.password, salt);
   next();

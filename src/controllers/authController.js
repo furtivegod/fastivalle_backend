@@ -6,6 +6,7 @@
 
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwt');
+const { verifyGoogleToken, verifyAppleIdToken } = require('../utils/verifySocialToken');
 
 /**
  * Register new user with email/phone and password
@@ -154,47 +155,61 @@ const login = async (req, res) => {
 /**
  * Google Sign-In
  * POST /api/auth/google
- * 
- * Mobile app sends the Google ID token after user signs in with Google.
- * We verify the token and create/login the user.
+ *
+ * Send either:
+ * - idToken: from Google Sign-In (verified on server when GOOGLE_CLIENT_ID is set)
+ * - Or googleId + email (and optionally name, profileImage) for dev without verification
  */
 const googleSignIn = async (req, res) => {
   try {
-    const { idToken, googleId, email, name, profileImage } = req.body;
-    
-    // In production, you should verify the idToken with Google
-    // For now, we trust the data from the mobile app
-    // TODO: Add Google token verification for production
-    
+    const { idToken, googleId: bodyGoogleId, email: bodyEmail, name: bodyName, profileImage: bodyProfileImage } = req.body;
+
+    let googleId = bodyGoogleId;
+    let email = bodyEmail;
+    let name = bodyName;
+    let profileImage = bodyProfileImage;
+
+    if (idToken) {
+      try {
+        const payload = await verifyGoogleToken(idToken);
+        if (payload) {
+          googleId = payload.sub;
+          email = payload.email || email;
+          name = name || payload.name;
+          profileImage = profileImage || payload.picture;
+        }
+      } catch (err) {
+        return res.status(401).json({ success: false, error: err.message || 'Invalid Google token' });
+      }
+    }
+
     if (!googleId || !email) {
       return res.status(400).json({
         success: false,
-        error: 'Google ID and email are required',
+        error: process.env.GOOGLE_CLIENT_ID
+          ? 'Google idToken is required (or provide googleId and email for dev)'
+          : 'Google ID and email are required',
       });
     }
-    
-    // Check if user exists with this Google ID
+
     let user = await User.findOne({ googleId });
-    
+
     if (!user) {
-      // Check if email already exists
       user = await User.findOne({ email: email.toLowerCase() });
-      
+
       if (user) {
-        // Link Google account to existing user
         user.googleId = googleId;
         if (!user.name && name) user.name = name;
         if (!user.profileImage && profileImage) user.profileImage = profileImage;
         await user.save();
       } else {
-        // Create new user
         user = await User.create({
           googleId,
           email: email.toLowerCase(),
           name,
           profileImage,
           authProvider: 'google',
-          isVerified: true, // Google verified the email
+          isVerified: true,
         });
       }
     }
@@ -228,48 +243,59 @@ const googleSignIn = async (req, res) => {
 /**
  * Apple Sign-In
  * POST /api/auth/apple
- * 
- * Mobile app sends the Apple identity token after user signs in with Apple.
- * Note: Apple only provides email on first sign-in!
+ *
+ * Send either:
+ * - identityToken: from Sign in with Apple (verified on server when APPLE_CLIENT_ID is set)
+ * - Or appleId (and optionally email, name; email only on first sign-in)
  */
 const appleSignIn = async (req, res) => {
   try {
-    const { identityToken, appleId, email, name } = req.body;
-    
-    // In production, you should verify the identityToken with Apple
-    // TODO: Add Apple token verification for production
-    
+    const { identityToken, appleId: bodyAppleId, email: bodyEmail, name: bodyName, nonce } = req.body;
+
+    let appleId = bodyAppleId;
+    let email = bodyEmail;
+    let name = bodyName;
+
+    if (identityToken) {
+      try {
+        const payload = await verifyAppleIdToken(identityToken, nonce);
+        if (payload) {
+          appleId = payload.sub;
+          email = email || payload.email;
+        }
+      } catch (err) {
+        return res.status(401).json({ success: false, error: err.message || 'Invalid Apple token' });
+      }
+    }
+
     if (!appleId) {
       return res.status(400).json({
         success: false,
-        error: 'Apple ID is required',
+        error: process.env.APPLE_CLIENT_ID
+          ? 'Apple identityToken is required (or provide appleId for dev)'
+          : 'Apple ID is required',
       });
     }
-    
-    // Check if user exists with this Apple ID
+
     let user = await User.findOne({ appleId });
-    
+
     if (!user) {
-      // Check if email exists (email is only provided on first sign-in)
       if (email) {
         user = await User.findOne({ email: email.toLowerCase() });
-        
         if (user) {
-          // Link Apple account to existing user
           user.appleId = appleId;
           if (!user.name && name) user.name = name;
           await user.save();
         }
       }
-      
+
       if (!user) {
-        // Create new user
         user = await User.create({
           appleId,
           email: email?.toLowerCase(),
           name,
           authProvider: 'apple',
-          isVerified: true, // Apple verified the user
+          isVerified: true,
         });
       }
     }
