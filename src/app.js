@@ -7,6 +7,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -20,6 +21,9 @@ app.use(express.json());
 
 // Parse URL-encoded form data
 app.use(express.urlencoded({ extended: true }));
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Mount all API routes under /api
 app.use('/api', routes);

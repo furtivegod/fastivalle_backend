@@ -345,13 +345,16 @@ const getMe = async (req, res) => {
  */
 const updateMe = async (req, res) => {
   try {
-    const { name, phone, profileImage } = req.body;
+    const { name, phone, profileImage, dateOfBirth, bio, isPrivate } = req.body;
     
     const user = await User.findById(req.user._id);
     
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
-    if (profileImage) user.profileImage = profileImage;
+    if (name !== undefined) user.name = name;
+    if (phone !== undefined) user.phone = phone;
+    if (profileImage !== undefined) user.profileImage = profileImage;
+    if (dateOfBirth !== undefined) user.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+    if (bio !== undefined) user.bio = bio;
+    if (isPrivate !== undefined) user.isPrivate = isPrivate;
     
     await user.save();
     
@@ -369,6 +372,45 @@ const updateMe = async (req, res) => {
   }
 };
 
+/**
+ * Upload profile image
+ * POST /api/auth/upload-image
+ * Requires: Bearer token, multipart/form-data with 'image' field
+ */
+const uploadProfileImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No image file provided',
+      });
+    }
+
+    // Build the URL for the uploaded image
+    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
+
+    // Update user's profile image
+    const user = await User.findById(req.user._id);
+    user.profileImage = imageUrl;
+    await user.save();
+
+    res.json({
+      success: true,
+      data: {
+        imageUrl,
+        user,
+      },
+    });
+  } catch (error) {
+    console.error('Upload image error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload image',
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -376,4 +418,5 @@ module.exports = {
   appleSignIn,
   getMe,
   updateMe,
+  uploadProfileImage,
 };

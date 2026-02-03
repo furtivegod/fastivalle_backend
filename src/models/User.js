@@ -37,6 +37,17 @@ const userSchema = new mongoose.Schema({
   profileImage: {
     type: String,
   },
+  dateOfBirth: {
+    type: Date,
+  },
+  bio: {
+    type: String,
+    maxlength: 500,
+  },
+  isPrivate: {
+    type: Boolean,
+    default: false,
+  },
   
   // Social Login IDs
   googleId: {
