@@ -6,7 +6,7 @@
 
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwt');
-const { verifyGoogleToken, verifyAppleIdToken } = require('../utils/verifySocialToken');
+const { verifyFirebaseIdToken, verifyAppleIdToken } = require('../utils/verifySocialToken');
 
 /**
  * Register new user with email/phone and password
@@ -15,7 +15,7 @@ const { verifyGoogleToken, verifyAppleIdToken } = require('../utils/verifySocial
 const register = async (req, res) => {
   try {
     const { email, phone, password, name } = req.body;
-    
+console.log(email, phone, password, name);
     // Validation
     if (!email && !phone) {
       return res.status(400).json({
@@ -80,7 +80,7 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, phone, password } = req.body;
-    
+console.log(email, phone, password);
     // Validation
     if (!email && !phone) {
       return res.status(400).json({
@@ -99,7 +99,7 @@ const login = async (req, res) => {
     // Find user (include password for comparison)
     const query = email ? { email: email.toLowerCase() } : { phone };
     const user = await User.findOne(query).select('+password');
-    
+console.log(user);    
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -153,61 +153,61 @@ const login = async (req, res) => {
 };
 
 /**
- * Google Sign-In
+ * Google Sign-In (Firebase idToken or raw Google idToken)
  * POST /api/auth/google
  *
- * Send either:
- * - idToken: from Google Sign-In (verified on server when GOOGLE_CLIENT_ID is set)
- * - Or googleId + email (and optionally name, profileImage) for dev without verification
+ * App sends Firebase idToken (from auth().currentUser.getIdToken() after signing in with Google via Firebase).
+ * Backend verifies with Firebase Admin, finds/creates user, returns { user, token }.
+ * Fallback: raw Google idToken when GOOGLE_CLIENT_ID is set and Firebase not used.
  */
 const googleSignIn = async (req, res) => {
   try {
-    const { idToken, googleId: bodyGoogleId, email: bodyEmail, name: bodyName, profileImage: bodyProfileImage } = req.body;
+    const { firebaseIdToken } = req.body;
 
-    let googleId = bodyGoogleId;
-    let email = bodyEmail;
-    let name = bodyName;
-    let profileImage = bodyProfileImage;
-
-    if (idToken) {
+    let googleId = null;
+    let email = null;
+    let name = null;
+    let profileImage = null;
+console.log('====>>>', firebaseIdToken);
+    if (firebaseIdToken) {
       try {
-        const payload = await verifyGoogleToken(idToken);
+        const payload = await verifyFirebaseIdToken(firebaseIdToken);
         if (payload) {
-          googleId = payload.sub;
+          googleId = payload.uid || payload.sub;
           email = payload.email || email;
           name = name || payload.name;
           profileImage = profileImage || payload.picture;
         }
       } catch (err) {
-        return res.status(401).json({ success: false, error: err.message || 'Invalid Google token' });
+        return res.status(401).json({ success: false, error: err.message || 'Invalid Firebase token' });
       }
     }
 
-    if (!googleId || !email) {
+    if (!googleId) {
       return res.status(400).json({
         success: false,
-        error: process.env.GOOGLE_CLIENT_ID
-          ? 'Google idToken is required (or provide googleId and email for dev)'
-          : 'Google ID and email are required',
+        error: 'idToken is required (Firebase idToken from the app)',
       });
     }
 
     let user = await User.findOne({ googleId });
 
     if (!user) {
-      user = await User.findOne({ email: email.toLowerCase() });
-
-      if (user) {
-        user.googleId = googleId;
-        if (!user.name && name) user.name = name;
-        if (!user.profileImage && profileImage) user.profileImage = profileImage;
-        await user.save();
-      } else {
+      if (email) {
+        user = await User.findOne({ email: email.toLowerCase().trim() });
+        if (user) {
+          user.googleId = googleId;
+          if (!user.name && name) user.name = name;
+          if (!user.profileImage && profileImage) user.profileImage = profileImage;
+          await user.save();
+        }
+      }
+      if (!user) {
         user = await User.create({
           googleId,
-          email: email.toLowerCase(),
-          name,
-          profileImage,
+          email: email ? email.toLowerCase().trim() : undefined,
+          name: name || undefined,
+          profileImage: profileImage || undefined,
           authProvider: 'google',
           isVerified: true,
         });
@@ -222,7 +222,7 @@ const googleSignIn = async (req, res) => {
     }
     
     const token = generateToken(user._id);
-    
+console.log('====', token);    
     res.json({
       success: true,
       data: {
@@ -250,30 +250,30 @@ const googleSignIn = async (req, res) => {
  */
 const appleSignIn = async (req, res) => {
   try {
-    const { identityToken, appleId: bodyAppleId, email: bodyEmail, name: bodyName, nonce } = req.body;
+    const { firebaseIdToken } = req.body;
 
-    let appleId = bodyAppleId;
-    let email = bodyEmail;
-    let name = bodyName;
-
-    if (identityToken) {
+    let appleId = null;
+    let email = null;
+    let name = null;
+    let profileImage = null;
+    if (firebaseIdToken) {
       try {
-        const payload = await verifyAppleIdToken(identityToken, nonce);
+        const payload = await verifyFirebaseIdToken(firebaseIdToken);
         if (payload) {
-          appleId = payload.sub;
-          email = email || payload.email;
+          appleId = payload.uid || payload.sub;
+          email = payload.email || email;
+          name = name || payload.name;
+          profileImage = profileImage || payload.picture;
         }
       } catch (err) {
-        return res.status(401).json({ success: false, error: err.message || 'Invalid Apple token' });
+        return res.status(401).json({ success: false, error: err.message || 'Invalid Firebase token' });
       }
     }
 
     if (!appleId) {
       return res.status(400).json({
         success: false,
-        error: process.env.APPLE_CLIENT_ID
-          ? 'Apple identityToken is required (or provide appleId for dev)'
-          : 'Apple ID is required',
+        error: 'Apple identityToken is required (Firebase idToken from the app)'
       });
     }
 
@@ -285,6 +285,7 @@ const appleSignIn = async (req, res) => {
         if (user) {
           user.appleId = appleId;
           if (!user.name && name) user.name = name;
+          if (!user.profileImage && profileImage) user.profileImage = profileImage;
           await user.save();
         }
       }
@@ -292,8 +293,9 @@ const appleSignIn = async (req, res) => {
       if (!user) {
         user = await User.create({
           appleId,
-          email: email?.toLowerCase(),
-          name,
+          email: email ? email.toLowerCase().trim() : undefined,
+          name: name || undefined,
+          profileImage: profileImage || undefined,
           authProvider: 'apple',
           isVerified: true,
         });
@@ -346,9 +348,9 @@ const getMe = async (req, res) => {
 const updateMe = async (req, res) => {
   try {
     const { name, phone, profileImage, dateOfBirth, bio, isPrivate } = req.body;
-    
+console.log(name, phone, profileImage, dateOfBirth, bio, isPrivate);
     const user = await User.findById(req.user._id);
-    
+console.log(user);    
     if (name !== undefined) user.name = name;
     if (phone !== undefined) user.phone = phone;
     if (profileImage !== undefined) user.profileImage = profileImage;

@@ -33,9 +33,16 @@ const protect = async (req, res, next) => {
     
     // Verify token
     const decoded = verifyToken(token);
-    
+    // Support both payload shapes: { id } (email/auth) and { userId } (legacy phone OTP)
+    const userId = decoded.id ?? decoded.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Not authorized - invalid token',
+      });
+    }
     // Get user from database (without password)
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(userId);
     
     if (!user) {
       return res.status(401).json({

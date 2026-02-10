@@ -6,7 +6,7 @@
  */
 
 const User = require('../models/User');
-const jwt = require('jsonwebtoken');
+const { generateToken } = require('../utils/jwt');
 
 // Generate a random 6-digit OTP
 const generateOTP = () => {
@@ -196,12 +196,8 @@ const verifyOTP = async (req, res) => {
 
     await user.save();
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '30d' }
-    );
+    // Generate JWT token (same payload shape as email auth: { id })
+    const token = generateToken(user._id);
 
     res.json({
       success: true,
