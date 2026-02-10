@@ -1,34 +1,29 @@
 /**
- * Server-side verification of Google and Apple ID tokens
- * Use these in production to ensure tokens are valid and not forged.
+ * Server-side verification of Firebase and Apple ID tokens.
+ * App sends Firebase idToken (Google Sign-In via Firebase) or Apple identityToken.
  */
 
-const { OAuth2Client } = require('google-auth-library');
 const verifyAppleToken = require('verify-apple-id-token').default;
+const { admin, isFirebaseInitialized } = require('../config/firebase');
 
 /**
- * Verify Google ID token and return payload
- * @param {string} idToken - The id_token from Google Sign-In
- * @returns {Promise<{ sub, email, name?, picture? }>} Decoded payload or null
+ * Verify Firebase ID token (from app: auth().currentUser.getIdToken()).
+ * Use when the app uses Firebase Auth with Google Sign-In.
+ * @param {string} idToken - Firebase idToken from the app
+ * @returns {Promise<{ uid, email?, name?, picture? }>} Decoded payload; sub/uid is the stable user id
  */
-const verifyGoogleToken = async (idToken) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId) {
-    console.warn('GOOGLE_CLIENT_ID not set - skipping server-side verification');
-    return null;
+const verifyFirebaseIdToken = async (idToken) => {
+  if (!isFirebaseInitialized()) {
+    throw new Error('Firebase Admin not configured (set GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_PROJECT_ID)');
   }
-
-  try {
-    const client = new OAuth2Client(clientId);
-    const ticket = await client.verifyIdToken({
-      idToken,
-      audience: clientId,
-    });
-    return ticket.getPayload(); // { sub, email, email_verified, name, picture, ... }
-  } catch (err) {
-    console.error('Google token verification failed:', err.message);
-    throw new Error('Invalid Google token');
-  }
+  const decoded = await admin.auth().verifyIdToken(idToken);
+  return {
+    uid: decoded.uid,
+    sub: decoded.uid,
+    email: decoded.email || null,
+    name: decoded.name || null,
+    picture: decoded.picture || null,
+  };
 };
 
 /**
@@ -59,6 +54,6 @@ const verifyAppleIdToken = async (identityToken, nonce) => {
 };
 
 module.exports = {
-  verifyGoogleToken,
+  verifyFirebaseIdToken,
   verifyAppleIdToken,
 };

@@ -138,12 +138,12 @@ curl -X POST http://localhost:5000/api/auth/login \
 
 ### Google Sign-In
 
-**Production:** Send the **idToken** from Google so the server can verify it (requires `GOOGLE_CLIENT_ID` in `.env`):
+**Production:** App sends **Firebase idToken** (from `auth().currentUser.getIdToken()`). Backend verifies with Firebase Admin (set `GOOGLE_APPLICATION_CREDENTIALS` or `FIREBASE_PROJECT_ID` in `.env`):
 
 ```bash
 curl -X POST http://localhost:5000/api/auth/google \
   -H "Content-Type: application/json" \
-  -d '{"idToken": "GOOGLE_ID_TOKEN_FROM_APP"}'
+  -d '{"idToken": "FIREBASE_ID_TOKEN_FROM_APP"}'
 ```
 
 **Dev (no verification):** Send `googleId` and `email`:
@@ -216,23 +216,28 @@ Users are stored in MongoDB with:
 
 Register and login use email/phone + password. For Google/Apple, the app sends the provider’s token; the server can verify it when you set the env vars below.
 
-### Google Sign-In (server-side verification)
+### Google Sign-In (Firebase idToken – recommended)
 
-1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create or use an OAuth 2.0 Client ID (e.g. iOS/Android/Web).
+The app uses **Firebase Auth** with Google: it sends the **Firebase idToken** (from `auth().currentUser.getIdToken()`), not a raw Google idToken.
+
+1. In [Firebase Console](https://console.firebase.google.com/) → Project settings → Service accounts, generate a new private key and save the JSON (e.g. `service-account.json`) in the backend folder.
 2. Add to `.env`:
    ```bash
-   GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   GOOGLE_APPLICATION_CREDENTIALS=./service-account.json
    ```
-3. From the app, send **`idToken`** (the ID token from Google) in the request body. The server will verify it and use the token’s `sub` and `email`. Without `GOOGLE_CLIENT_ID`, you can still send `googleId` and `email` (dev only).
+   Or set `FIREBASE_PROJECT_ID=your-project-id` if using default credentials.
+3. The app sends **`idToken`** (Firebase idToken). The server verifies it with Firebase Admin, finds/creates the user by Firebase UID (stored as `googleId`), and returns your app JWT.
+
+**Fallback (raw Google idToken):** If you set `GOOGLE_CLIENT_ID`, the server can also verify a raw Google idToken when Firebase verification is not used.
 
 ### Apple Sign-In (server-side verification)
 
-1. In [Apple Developer](https://developer.apple.com/account) → Certificates, Identifiers & Profiles → Identifiers, create a **Services ID** (e.g. `com.yourapp.service`).
+1. Use your **iOS app bundle ID** as the audience when verifying the Apple identity token (e.g. `com.fastivalle.fastivalle-app`).
 2. Add to `.env`:
    ```bash
-   APPLE_CLIENT_ID=com.yourapp.service
+   APPLE_CLIENT_ID=com.fastivalle.fastivalle-app
    ```
-3. From the app, send **`identityToken`** (the JWT from Sign in with Apple). The server will verify it and use the token’s `sub`. Without `APPLE_CLIENT_ID`, you can send `appleId` (and `email` when Apple provides it) for dev.
+3. From the app, send **`identityToken`**, **`appleId`**, and optionally **`email`**, **`name`**, **`nonce`**. The server verifies the token and finds/creates the user.
 
 ### Protected routes
 
@@ -250,8 +255,32 @@ Authorization: Bearer <token>
 | `MONGODB_URI` | MongoDB connection string |
 | `JWT_SECRET` | Secret key for signing tokens (keep this safe!) |
 | `JWT_EXPIRES_IN` | Token expiration time (default: 30d) |
-| `GOOGLE_CLIENT_ID` | Optional. Google OAuth Client ID for server-side token verification |
-| `APPLE_CLIENT_ID` | Optional. Apple Services ID for server-side token verification |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to Firebase service account JSON (for Firebase idToken verification) |
+| `FIREBASE_PROJECT_ID` | Firebase project ID (alternative to service account file) |
+| `GOOGLE_CLIENT_ID` | Optional. Raw Google OAuth Client ID (fallback when not using Firebase) |
+| `APPLE_CLIENT_ID` | Optional. iOS app bundle ID for Apple identityToken verification (e.g. com.fastivalle.fastivalle-app) |
+
+## Deploying to Vercel (or other serverless)
+
+On Vercel, the app runs as **serverless functions**: there is no long-running process that connects to MongoDB at startup. If the DB connection isn’t established before the first request, Mongoose buffers operations and you can see:
+
+`MongooseError: Operation 'users.findOne()' buffering timed out after 10000ms`
+
+**Code changes in this repo:** The DB layer now caches the connection and API routes use middleware that ensures MongoDB is connected before handling requests, so the first request establishes the connection and later ones reuse it.
+
+**You must also:**
+
+1. **Set `MONGODB_URI` in Vercel**  
+   In the Vercel project → Settings → Environment Variables, add `MONGODB_URI` with your MongoDB Atlas connection string (same as in `.env` locally). Do **not** use `localhost`; use the Atlas host from the Atlas dashboard.
+
+2. **Allow access from anywhere in MongoDB Atlas**  
+   Vercel’s outbound IPs change, so Atlas must allow all IPs:
+   - Open [MongoDB Atlas](https://cloud.mongodb.com/) → your project → **Network Access**.
+   - Click **Add IP Address**.
+   - Choose **Allow Access from Anywhere** (adds `0.0.0.0/0`).
+   - Save. Wait a minute for it to apply.
+
+After redeploying and setting the env var + Atlas network rule, the timeout error should go away.
 
 ## Need Help?
 
