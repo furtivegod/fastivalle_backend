@@ -1,6 +1,6 @@
 /**
  * Express Application Setup
- * 
+ *
  * This file configures the Express app with middleware and routes.
  * Express is a web framework for Node.js - it handles HTTP requests/responses.
  */
@@ -10,6 +10,7 @@ const cors = require('cors');
 const path = require('path');
 const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
+const connectDB = require('./config/db');
 
 const app = express();
 
@@ -18,6 +19,16 @@ app.use(cors());
 
 // Parse JSON request body - so we can read data sent in POST/PUT requests
 app.use(express.json());
+
+// Ensure MongoDB is connected before handling API requests (required for Vercel serverless)
+app.use('/api', async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Parse URL-encoded form data
 app.use(express.urlencoded({ extended: true }));
