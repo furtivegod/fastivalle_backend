@@ -7,6 +7,9 @@
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwt');
 const { verifyFirebaseIdToken, verifyAppleIdToken } = require('../utils/verifySocialToken');
+const { put: putBlob } = require('@vercel/blob');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 /**
  * Register new user with email/phone and password
@@ -377,7 +380,8 @@ console.log(user);
 /**
  * Upload profile image
  * POST /api/auth/upload-image
- * Requires: Bearer token, multipart/form-data with 'image' field
+ * Requires: Bearer token, multipart/form-data with 'image' field.
+ * Uploads to Vercel Blob (no local disk); works on serverless.
  */
 const uploadProfileImage = async (req, res) => {
   try {
@@ -388,11 +392,24 @@ const uploadProfileImage = async (req, res) => {
       });
     }
 
-    // Build the URL for the uploaded image
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-    const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return res.status(503).json({
+        success: false,
+        error: 'Image upload is not configured (missing BLOB_READ_WRITE_TOKEN). Add a Vercel Blob store and set the token.',
+      });
+    }
 
-    // Update user's profile image
+    const ext = path.extname(req.file.originalname) || '.jpg';
+    const pathname = `profile-images/${req.user._id}/${uuidv4()}${ext}`;
+
+    const blob = await putBlob(pathname, req.file.buffer, {
+      access: 'public',
+      addRandomSuffix: true,
+      contentType: req.file.mimetype || undefined,
+    });
+
+    const imageUrl = blob.url;
+
     const user = await User.findById(req.user._id);
     user.profileImage = imageUrl;
     await user.save();

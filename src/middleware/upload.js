@@ -1,32 +1,15 @@
 /**
  * File Upload Middleware
- * 
- * Handles image uploads using multer.
- * Stores files in /uploads directory with unique names.
+ *
+ * Uses multer memoryStorage so files are in req.file.buffer (no disk writes).
+ * Compatible with Vercel serverless (read-only filesystem).
+ * Actual storage is handled in the controller (e.g. Vercel Blob).
  */
 
 const multer = require('multer');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const uniqueName = `${uuidv4()}${ext}`;
-    cb(null, uniqueName);
-  },
-});
+// Memory storage - file is available as req.file.buffer
+const storage = multer.memoryStorage();
 
 // File filter - only allow images
 const fileFilter = (req, file, cb) => {

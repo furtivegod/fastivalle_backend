@@ -7,7 +7,6 @@
 
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
 const connectDB = require('./config/db');
@@ -33,9 +32,7 @@ app.use('/api', async (req, res, next) => {
 // Parse URL-encoded form data
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
+// Profile images are served from Vercel Blob URLs (no local /uploads on serverless)
 // Mount all API routes under /api
 app.use('/api', routes);
 
