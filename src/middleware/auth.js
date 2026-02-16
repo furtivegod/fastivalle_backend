@@ -70,4 +70,32 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+/**
+ * Optional auth - attaches user if token valid, continues without user if no token
+ */
+const optionalAuth = async (req, res, next) => {
+  try {
+    let token;
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+    const decoded = verifyToken(token);
+    const userId = decoded.id ?? decoded.userId;
+    if (!userId) {
+      req.user = null;
+      return next();
+    }
+    const user = await User.findById(userId);
+    req.user = user && user.isActive ? user : null;
+    next();
+  } catch {
+    req.user = null;
+    next();
+  }
+};
+
+module.exports = { protect, optionalAuth };
